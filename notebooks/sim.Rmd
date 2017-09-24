@@ -1,0 +1,128 @@
+---
+title: "Who is best at forging alliances? A simulation approach"
+author: "Ava, Adnan"
+date: "24 September 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Question
+
+We can calculate how each allegiance contributes to being on the throne. 
+For example, how often House of Amber is allied to the throne determines their contribution to probability of being on the throne.
+
+A simulation to see what the possibilities are for future allegiances. Each simulation draws random number for each house, 
+then adds allegiances to determine probability of getting throne. 
+We can simulate a thousand times to then get a probability distribution for 
+getting throne for each house.
+
+Distribution would be very simple: House switches allegiance = R > _u_ where R is random number from uniform distribution (0,1) and _u_ is probability of switching
+
+**Where's dynamic allegiances data?**
+**How to find swtiching probability?**
+**How to find allegiance_to_throne probability?**
+
+## Prep dummy data
+
+```{r prep}
+set.seed(19092017)
+suppressPackageStartupMessages(library(tidyverse))
+options(stringsAsFactors = FALSE)
+
+state_allegiance <- data.frame(major_house=c("Stark", "Lannister", "Baratheon"),
+                               minor_house=c("Tyrell", "Vale", "Bolling"))
+
+switching <- data.frame(major_house = c("Stark", "Lannister", "Baratheon"),
+                        minor_house = c("Vale", "Tyrell", "Bolling"),
+                        switch = c(0.5, 0.5, 0.5))
+
+## the probability for a house to grab the throne ???
+allegiance_to_throne <- data.frame(
+  house = c("Vale", "Tyrell", "Stark", "Lannister", "Baratheon", "Bolling"),
+  probability = c(0.3, 0.4, 0.8, 0.7, 0.1, 0.2))
+
+
+state_allegiance
+
+switching
+
+allegiance_to_throne
+
+```
+
+## Simulate on a minimal example
+Define function to get probability for a major house's contribution to the throne by summing up probabilities of its barons. 
+
+For each row (a pair of allegiance relationship), generate a random value from uniform distribution. If this number is larger than the switch probability ie. 0.5, assign major house from switching to that in state_allegiance.
+
+
+```{r sim}
+
+## get probability of major house from its minors (sum or mean?)
+get_probability_to_throne <- function(allegiance_state, simrun){
+  result <- allegiance_state %>% 
+    left_join(allegiance_to_throne, by=c("minor_house"="house")) %>% 
+    group_by(major_house) %>% summarise(total_prob = sum(probability)) %>% 
+    ungroup()
+  colnames(result) <- c("major_house", paste0("total", simrun))
+  return(result)
+}
+
+simulated_throne_prob <- get_probability_to_throne(state_allegiance, 0)
+## run simulations 10 times 
+number_of_sims <- 10
+for(i in 1:number_of_sims){
+  for(j in 1:nrow(switching)){
+    r <- runif(1)
+    minor_house <- switching$minor_house[j]
+    major_house <- switching$major_house[j]
+    if(r > switching[j, "switch"]){
+      state_allegiance[state_allegiance$minor_house==minor_house, "major_house"] <- major_house
+    }
+  }
+  simulated_throne_prob <- left_join(simulated_throne_prob, 
+                                     get_probability_to_throne(state_allegiance, i),
+                                     by="major_house")
+}
+
+
+simulated_throne_prob <- gather(simulated_throne_prob, key="SimRun", "Probability", -major_house)
+qplot(x=Probability, data=simulated_throne_prob) + facet_wrap(~major_house)
+
+```
+
+
+## Allegiances switching over time
+
+Two data sources appear promising for our task after searching for more real world data, beyond the API data. 
+
+- [Game of Thrones Kaggle data sets](https://www.kaggle.com/mylesoneill/game-of-thrones/data). In the character-deaths.csv, each character has an alligance value such as 
+ 
+```{r}
+death  = read.csv("../data/game-of-thrones-kaggle/character-deaths.csv")
+head(death)
+summary(factor(death$Allegiances))
+```
+
+Interestingly, **Night's Watch** and **Wildling** are on the list, which allow them explicily claiming to be significant political bodies. Seen from this data set, it seems the allegiances label is one for good, rather than evolve over time. Is it true? We then can calculate major groups' allegiance_to_throne from 2 values - death statuses and allegiances of characters. A character will remain one label unless she/he dies. The transition matrix may look like the mock below. It is akin to a summary matrix of `switching` probability (???) above.
+```{r transition}
+transition <- data.frame(Lannister = c(0.8, 0, 0, 0),
+                         Stark = c(0, 0.7, 0, 0),
+                         "Night's Watch" = c(0.05, 0.1, 0.5, 0),
+                         dead = c(0.15, 0.2, 0.5, 1), check.names = FALSE)
+row.names(transition) <- c("Lannister", "Stark", "Night's Watch", "dead")
+# row sums should equal 1, i.e. each group will go to one of the statuses
+rowSums(transition)
+transition                        
+```
+
+Still not sure how to derive `allegiance_to_throne`???
+
+- [Statuses of the Houses in Westeros](http://awoiaf.westeros.org/index.php/Houses_of_Westeros). Available both at the start of A Game of Thrones, and at the end of the most recent book in the A Song of Ice and Fire series (currently A Dance with Dragons).
+
+
+
+
